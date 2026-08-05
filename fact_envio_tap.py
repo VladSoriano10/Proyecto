@@ -8,110 +8,92 @@ def cargar_fact_envio_tap():
     print("\n--- Iniciando proceso ETL (Carga Inicial) para fact_envio_tap ---")
 
     # EXTRACCIÓN
-    print("-> 1. Extrayendo transacciones de la base 'Roaming'...")
-
+    print("-> 1. Extrayendo log de envíos TAP de la base 'Roaming'...")
+    
     query_hechos = """
         SELECT 
+            fecha_creacion,
+            fecha_envio_ftp,
             id_operador,
-            COALESCE(fecha_envio_ftp, fecha_creacion, CURRENT_TIMESTAMP) AS fecha_envio,
             estado_envio,
-            cantidad_cdrs_incluidos,
-            monto_total_sdr,
-            intento_transmision, -- Regresado a la ortografía original correcta
-            1 AS cantidad_envios
+            COALESCE(cantidad_cdrs_incluidos, 0) AS cantidad_cdrs_incluidos,
+            COALESCE(monto_total_sdr, 0) AS monto_total_sdr,
+            COALESCE(intento_transmision, 0) AS intento_transmision
         FROM byte_envio_tap_log;
     """
+    
     df_hechos = pd.read_sql(query_hechos, con=engine_origen)
-    print(f"   Se extrajeron {len(df_hechos)} transacciones.")
+    print(f"   Se extrajeron {len(df_hechos)} registros de envíos TAP.")
 
+    # DESCARGA DE DIMENSIONES (Lookups)
     print("-> 2. Descargando Llaves Subrogadas (SK) del Data Warehouse...")
-    df_dim_operador = pd.read_sql(
-        "SELECT sk_operador, nk_id_operador FROM dim_operador;", con=engine_destino
-    )
-    df_dim_estado = pd.read_sql(
-        "SELECT sk_estado_envio, estado_envio FROM dim_estado_envio;",
-        con=engine_destino,
-    )
+    df_dim_operador = pd.read_sql("SELECT sk_operador, nk_id_operador FROM dim_operador;", con=engine_destino)
 
-    # 2. TRANSFORMACIÓN Y CRUZAMIENTO
+    # TRANSFORMACIÓN Y CRUZAMIENTO
+    print("-> 3. Aplicando Role-Playing Dimensions y Dimensión Degenerada...")
 
-    print("-> 3. Ejecutando cruce de llaves (Lookups en memoria)...")
+    # --- Tipos de Datos Numéricos ---
+    df_hechos['cantidad_cdrs_incluidos'] = df_hechos['cantidad_cdrs_incluidos'].astype(int)
+    df_hechos['monto_total_sdr'] = df_hechos['monto_total_sdr'].astype(float)
+    df_hechos['intento_transmision'] = df_hechos['intento_transmision'].astype(int)
+    
+    # Métrica base para facilitar el recuento de envíos
+    df_hechos['cantidad_envios'] = 1
 
-    # --- Limpieza de métricas numéricas ---
-    df_hechos["cantidad_cdrs_incluidos"] = (
-        df_hechos["cantidad_cdrs_incluidos"].fillna(0).astype(int)
-    )
-    df_hechos["monto_total_sdr"] = (
-        df_hechos["monto_total_sdr"].fillna(0.0).astype(float)
-    )
-    df_hechos["intento_transmision"] = (
-        df_hechos["intento_transmision"].fillna(1).astype(int)
-    )
+    # --- Dimensión Degenerada (Estado de Envío) ---
+    df_hechos['estado_envio'] = df_hechos['estado_envio'].fillna('DESCONOCIDO').str.strip().str.upper()
 
-    # ---Lookup de Tiempo ---
-    df_hechos["sk_fecha"] = pd.to_datetime(df_hechos["fecha_envio"]).dt.strftime(
-        "%Y%m%d"
-    )
-    df_hechos["sk_fecha"] = df_hechos["sk_fecha"].fillna("19000101").astype(int)
+    # --- Role-Playing Dimension de Tiempo (sk_fecha_creacion y sk_fecha_envio) ---
+    # Procesamiento sk_fecha_creacion (asumimos que siempre viene llena, pero nos protegemos)
+    df_hechos['fecha_creacion_dt'] = pd.to_datetime(df_hechos['fecha_creacion'])
+    df_hechos['sk_fecha_creacion'] = df_hechos['fecha_creacion_dt'].dt.strftime('%Y%m%d').fillna('-1').astype(int)
 
-    # ---Lookup de Operador ---
-    df_hechos["id_operador"] = df_hechos["id_operador"].str.strip().str.upper()
+    # Procesamiento sk_fecha_envio (puede venir nula si aún no se envía)
+    df_hechos['fecha_envio_dt'] = pd.to_datetime(df_hechos['fecha_envio_ftp'])
+    df_hechos['sk_fecha_envio'] = df_hechos['fecha_envio_dt'].dt.strftime('%Y%m%d').fillna('-1').astype(int)
+
+    # --- Lookup de Operador ---
+    df_hechos['id_operador'] = df_hechos['id_operador'].str.strip().str.upper()
     df_hechos = df_hechos.merge(
-        df_dim_operador, left_on="id_operador", right_on="nk_id_operador", how="left"
+        df_dim_operador, 
+        left_on='id_operador', 
+        right_on='nk_id_operador', 
+        how='left'
     )
+    # Protegemos contra nulos asignando el ID del Registro Desconocido
+    df_hechos['sk_operador'] = df_hechos['sk_operador'].fillna(-1).astype(int)
 
-    # --- Lookup de Estado ---
-    mapeo_estados = {
-        "PEN": "PENDIENTE DE ENVÍO",
-        "ENV": "ENVIADO EXITOSAMENTE",
-        "ERR": "ERROR DE TRANSMISIÓN",
-        "RECH": "RECHAZADO POR SYNIVERSE",
-    }
-    df_hechos["estado_envio_temp"] = (
-        df_hechos["estado_envio"]
-        .fillna("SIN ESTADO")
-        .str.strip()
-        .str.upper()
-        .replace(mapeo_estados)
-    )
-
-    df_hechos = df_hechos.merge(
-        df_dim_estado, left_on="estado_envio_temp", right_on="estado_envio", how="left"
-    )
-
-    # --- Control de Calidad de Llaves Subrogadas ---
-    df_hechos["sk_operador"] = df_hechos["sk_operador"].fillna(-1).astype(int)
-    df_hechos["sk_estado_envio"] = df_hechos["sk_estado_envio"].fillna(-1).astype(int)
-
-    # Alineamos las columnas 
+    # Mapeo exacto de columnas para el INSERT
     columnas_finales = [
-        "sk_fecha",
-        "sk_operador",
-        "sk_estado_envio",
-        "cantidad_cdrs_incluidos",
-        "monto_total_sdr",
-        "intento_transmision",  
-        "cantidad_envios",
+        'sk_fecha_creacion',
+        'sk_fecha_envio',
+        'sk_operador',
+        'estado_envio',
+        'cantidad_cdrs_incluidos',
+        'monto_total_sdr',
+        'intento_transmision',
+        'cantidad_envios'
     ]
     df_final = df_hechos[columnas_finales]
 
 
-    #LIMPIEZA PREVIA Y CARGA
-    print("-> 4. Limpiando tabla de hechos (Idempotencia)...")
+    # CARGA
+
+    print("-> 4. Limpiando tabla fact_envio_tap (Idempotencia)...")
     with engine_destino.begin() as conn:
         conn.execute(text("TRUNCATE TABLE fact_envio_tap RESTART IDENTITY CASCADE;"))
-
-    print("-> 5. Cargando métricas cruzadas a 'DWRoamingMovistar'...")
+        
+    print("-> 5. Cargando registros de clearing a 'DWRoamingMovistar'...")
     df_final.to_sql(
-        name="fact_envio_tap", con=engine_destino, if_exists="append", index=False
+        name='fact_envio_tap', 
+        con=engine_destino, 
+        if_exists='append', 
+        index=False
     )
+    
+    print(f"¡Carga exitosa! Se insertaron {len(df_final)} lotes de envío en fact_envio_tap.\n")
 
-    print(
-        f"¡Carga exitosa! Se insertaron {len(df_final)} métricas en fact_envio_tap.\n"
-    )
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     if probar_conexiones():
         cargar_fact_envio_tap()
     else:

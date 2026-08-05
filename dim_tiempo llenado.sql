@@ -52,7 +52,7 @@ SELECT
         ELSE FALSE 
     END AS es_fin_semana,
     
-    -- 9. Bandera de Fin de Mes
+    -- Bandera de Fin de Mes
     CASE 
         WHEN fecha_generada::DATE = (DATE_TRUNC('month', fecha_generada) + INTERVAL '1 month - 1 day')::DATE THEN TRUE 
         ELSE FALSE 
@@ -66,5 +66,32 @@ FROM (
         '1 day'::INTERVAL
     ) AS fecha_generada
 ) AS generador;
+
+INSERT INTO dim_tiempo (
+    sk_fecha, 
+    fecha, 
+    anio, 
+    mes, 
+    dia, 
+    nombre_mes, 
+    dia_semana, 
+    trimestre, 
+    anio_mes, 
+    es_fin_semana, 
+    es_fin_mes
+) VALUES (
+    -1, 
+    '1900-01-01', 
+    1900, 
+    1, 
+    1, 
+    'DESCONOCIDO', 
+    'DESCONOCIDO', 
+    0, 
+    190001, 
+    false, 
+    false
+);
+
 
 SELECT * FROM dim_tiempo LIMIT 15;

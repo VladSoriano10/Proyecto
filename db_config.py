@@ -11,7 +11,7 @@ PORT = "5432"
 
 # Cadenas de conexión
 str_origen = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/Roaming"
-str_destino = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/DWRoamingMovistar"
+str_destino = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/DWRoamingMovistarV2"
 
 # Creación de los motores 
 engine_origen = create_engine(str_origen)

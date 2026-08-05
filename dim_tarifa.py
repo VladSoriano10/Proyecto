@@ -7,10 +7,10 @@ from db_config import engine_destino, engine_origen, probar_conexiones
 def cargar_dim_tarifa():
     print("\n--- Iniciando proceso ETL (Carga Inicial) para dim_tarifa ---")
 
-    #EXTRACCIÓN
-    print("-> Extrayendo datos de la base 'Roaming'...")
-    
-    query_extraccion = """
+    # EXTRACCIÓN
+
+    print("-> 1. Extrayendo datos de la tabla 'tarifas'...")
+    query = """
         SELECT 
             id_tarifa AS nk_id_tarifa,
             tipo_trafico,
@@ -20,57 +20,78 @@ def cargar_dim_tarifa():
             fecha_fin_vigencia
         FROM tarifas;
     """
-    
-    df_tarifa = pd.read_sql(query_extraccion, con=engine_origen)
-    print(f"   Se extrajeron {len(df_tarifa)} registros origen.")
+    df_tarifa = pd.read_sql(query, con=engine_origen)
+    print(f"   Se extrajeron {len(df_tarifa)} tarifas del origen.")
+
 
     # TRANSFORMACIÓN
-    print("-> Aplicando limpieza, traducción comercial completa y preparación SCD2...")
-    
-    # Limpieza base de textos
-    df_tarifa['tipo_trafico'] = df_tarifa['tipo_trafico'].fillna('N/A').str.strip().str.upper()
-    df_tarifa['moneda'] = df_tarifa['moneda'].fillna('N/A').str.strip().str.upper()
-    
-    # iccionario de Traducción
-    mapeo_trafico = {
-        'GPRS': 'Datos Móviles',
-        'PORTAL': 'Llamadas de Voz',
-        'CAMEL': 'Servicios Inteligentes'
-    }
-    mapeo_moneda = {
-        'EUR': 'Euros',
-        'SDR': 'Derechos Especiales de Giro'
-    }
-    
-    # Aplicamos los reemplazos
-    df_tarifa['tipo_trafico'] = df_tarifa['tipo_trafico'].replace(mapeo_trafico)
-    df_tarifa['moneda'] = df_tarifa['moneda'].replace(mapeo_moneda)
-    
-    # 3. Asegurar numéricos y manejo de fechas
-    df_tarifa['costo_unidad'] = df_tarifa['costo_unidad'].fillna(0.0000)
-    df_tarifa['fecha_inicio_vigencia'] = df_tarifa['fecha_inicio_vigencia'].fillna(pd.to_datetime('1900-01-01'))
-    df_tarifa['fecha_fin_vigencia'] = df_tarifa['fecha_fin_vigencia'].fillna(pd.to_datetime('2999-12-31'))
 
-    # LIMPIEZA PREVIA Y CARGA (Load)
-    print("-> Limpiando registros anteriores y reseteando llaves (Idempotencia)...")
-    
-    # Ejecutamos el borrado seguro en PostgreSQL antes de insertar los nuevos datos
+    print("-> 2. Aplicando estandarización y reglas SCD Tipo 2...")
+
+    # ---  Absorción del Catálogo de Servicios ---
+    # Traducimos el tráfico crudo al lenguaje de negocio\
+    mapeo_servicios = {
+        "GPRS": "GPRS - DATOS MÓVILES",
+        "PORTAL": "PORTAL - VOZ",
+        "CAMEL": "CAMEL - EVENTOS",
+    }
+    # Limpiamos espacios, pasamos a mayúsculas y aplicamos la traducción
+    df_tarifa["tipo_trafico"] = (
+        df_tarifa["tipo_trafico"].str.strip().str.upper().replace(mapeo_servicios)
+    )
+
+    # Limpiamos la moneda y protegemos contra nulos asumiendo 'USD' por defecto si viniera vacío
+    df_tarifa["moneda"] = df_tarifa["moneda"].fillna("USD").str.strip().str.upper()
+
+    # --- Aseguramiento de Tipos Numéricos ---
+    df_tarifa["costo_unidad"] = df_tarifa["costo_unidad"].astype(float)
+
+    # --- Aplicación de Fechas (SCD Tipo 2) ---
+    # Convertimos a formato datetime
+    df_tarifa["fecha_inicio_vigencia"] = pd.to_datetime(
+        df_tarifa["fecha_inicio_vigencia"]
+    )
+    df_tarifa["fecha_fin_vigencia"] = pd.to_datetime(df_tarifa["fecha_fin_vigencia"])
+
+    # Rellenamos los vacíos con la fecha 'fin de los tiempos'
+    df_tarifa["fecha_fin_vigencia"] = df_tarifa["fecha_fin_vigencia"].fillna(
+        pd.to_datetime("2999-12-31")
+    )
+
+    # Extraemos solo la porción de fecha (YYYY-MM-DD) para encajar con el tipo DATE de PostgreSQL
+    df_tarifa["fecha_inicio_vigencia"] = df_tarifa["fecha_inicio_vigencia"].dt.date
+    df_tarifa["fecha_fin_vigencia"] = df_tarifa["fecha_fin_vigencia"].dt.date
+
+    # Mapeo de las columnas en el orden del DDL
+    columnas_finales = [
+        "nk_id_tarifa",
+        "tipo_trafico",
+        "costo_unidad",
+        "moneda",
+        "fecha_inicio_vigencia",
+        "fecha_fin_vigencia",
+    ]
+    df_final = df_tarifa[columnas_finales]
+
+
+    # CARGA (Idempotencia)
+
+    print("-> 3. Limpiando tabla dim_tarifa...")
     with engine_destino.begin() as conn:
         conn.execute(text("TRUNCATE TABLE dim_tarifa RESTART IDENTITY CASCADE;"))
-    
-    print("-> Cargando datos limpios a 'DWRoamingMovistar'...")
-    
-    df_tarifa.to_sql(
-        name='dim_tarifa',
-        con=engine_destino,
-        if_exists='append',
-        index=False
-    )
-    
-    print(f"¡Carga exitosa! Se insertaron {len(df_tarifa)} registros en dim_tarifa.\n")
 
-if __name__ == '__main__':
+    print("-> 4. Insertando nuevos registros en 'DWRoamingMovistar'...")
+    df_final.to_sql(
+        name="dim_tarifa", con=engine_destino, if_exists="append", index=False
+    )
+
+    print(
+        f"¡Carga exitosa! Se insertaron {len(df_final)} tarifas en dim_tarifa.\n"
+    )
+
+
+if __name__ == "__main__":
     if probar_conexiones():
         cargar_dim_tarifa()
     else:
-        print("\n Proceso ETL abortado debido a problemas de conexión.")
+        print("\nProceso ETL abortado debido a problemas de conexión.")
