@@ -1,0 +1,8 @@
+# Manipulación y transformación de datos
+pandas>=2.0.0
+
+# Conexión y ejecución de consultas a la base de datos
+SQLAlchemy>=2.0.0
+
+# Driver/Adaptador de PostgreSQL para Python
+psycopg2-binary>=2.9.0
