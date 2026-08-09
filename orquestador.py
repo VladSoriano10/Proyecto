@@ -10,7 +10,7 @@ from fact_envio_tap import cargar_fact_envio_tap
 from fact_roaming import cargar_fact_roaming
 
 
-def ejecutar_pipeline_inicial():
+def ejecutar_carga_inicial():
     print("=========================================================")
     print("🚀 INICIANDO ORQUESTADOR DE CARGA INICIAL (DW MOVISTAR) 🚀")
     print("=========================================================")
@@ -58,4 +58,4 @@ def ejecutar_pipeline_inicial():
     print("=========================================================")
 
 if __name__ == '__main__':
-    ejecutar_pipeline_inicial()
+    ejecutar_carga_inicial()

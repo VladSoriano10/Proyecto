@@ -75,7 +75,6 @@ CREATE TABLE fact_roaming (
 CREATE TABLE fact_envio_tap (
     id_hecho BIGSERIAL PRIMARY KEY,
     
-    -- Role-Playing Dimensions (Múltiples referencias a dim_tiempo)
     sk_fecha_creacion INT NOT NULL REFERENCES dim_tiempo(sk_fecha),
     sk_fecha_envio INT NOT NULL REFERENCES dim_tiempo(sk_fecha),
     

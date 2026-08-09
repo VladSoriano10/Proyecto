@@ -4,7 +4,7 @@ from sqlalchemy import text
 from db_config import engine_destino, engine_origen, probar_conexiones
 
 
-def incremental_fact_roaming():
+def diferencial_fact_roaming():
     print("\n--- Iniciando Carga INCREMENTAL para fact_roaming ---")
 
 
@@ -165,4 +165,4 @@ def incremental_fact_roaming():
 
 if __name__ == "__main__":
     if probar_conexiones():
-        incremental_fact_roaming()
+        diferencial_fact_roaming()

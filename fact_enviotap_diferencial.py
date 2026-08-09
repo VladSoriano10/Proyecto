@@ -1,8 +1,10 @@
 import pandas as pd
-from db_config import engine_origen, engine_destino, probar_conexiones
-from sqlalchemy import text 
+from sqlalchemy import text
 
-def incremental_fact_envio_tap():
+from db_config import engine_destino, engine_origen, probar_conexiones
+
+
+def diferencial_fact_envio_tap():
     print("\n--- Iniciando Carga INCREMENTAL para fact_envio_tap ---")
 
 
@@ -88,4 +90,4 @@ def incremental_fact_envio_tap():
 
 if __name__ == '__main__':
     if probar_conexiones():
-        incremental_fact_envio_tap()
+        diferencial_fact_envio_tap()
