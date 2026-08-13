@@ -29,7 +29,7 @@ def diferencial_dim_tarifa():
     """
     df_origen = pd.read_sql(query_origen, con=engine_origen)
 
-    # Transformaciones de negocio (IDÉNTICAS a la carga inicial)
+    # Transformaciones de negocio 
     mapeo_servicios = {
         'GPRS': 'GPRS - DATOS MÓVILES',
         'PORTAL': 'PORTAL - VOZ',
@@ -38,7 +38,7 @@ def diferencial_dim_tarifa():
     df_origen['tipo_trafico'] = df_origen['tipo_trafico'].str.strip().str.upper().replace(mapeo_servicios)
     df_origen['moneda'] = df_origen['moneda'].fillna('USD').str.strip().str.upper()
     
-    # ¡CAST! Aseguramos tipos de datos estrictos
+    # casteo Aseguramos tipos de datos estrictos
     df_origen['nk_id_tarifa'] = df_origen['nk_id_tarifa'].astype(int)
     df_origen['costo_unidad'] = df_origen['costo_unidad'].astype(float)
 
@@ -54,13 +54,13 @@ def diferencial_dim_tarifa():
     """
     df_destino = pd.read_sql(query_destino, con=engine_destino)
 
-    # ¡CAST! Forzamos tipos si el DW tiene datos
+    # casteo Aseguramos tipos de datos estrictos
     if not df_destino.empty:
         df_destino['nk_id_tarifa'] = df_destino['nk_id_tarifa'].astype(int)
         df_destino['costo_unidad_dw'] = df_destino['costo_unidad_dw'].astype(float)
         df_destino['tipo_trafico_dw'] = df_destino['tipo_trafico_dw'].str.strip().str.upper()
 
-    # 2. TRANSFORMACIÓN (El motor del SCD Tipo 2)
+    # 2. TRANSFORMACIÓN 
     print("-> 2. Detectando tarifas nuevas y cambios de precio...")
     
     # CRUZAMOS LAS TABLAS 
@@ -71,10 +71,10 @@ def diferencial_dim_tarifa():
         how='left'
     )
 
-    # REGLA 1: Tarifas totalmente nuevas 
+    # Tarifas totalmente nuevas 
     df_nuevos = df_merge[df_merge['costo_unidad_dw'].isna()].copy()
     
-    # REGLA 2: Tarifas modificadas (El costo o el tipo de tráfico cambió)
+    # Tarifas modificadas (El costo o el tipo de tráfico cambió)
     # Redondeamos a 4 decimales para eliminar falsos positivos de precisión flotante
     df_cambios = df_merge[
         (df_merge['costo_unidad_dw'].notna()) & 

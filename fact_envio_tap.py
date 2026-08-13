@@ -43,7 +43,6 @@ def cargar_fact_envio_tap():
     # --- Dimensión Degenerada (Estado de Envío) ---
     df_hechos['estado_envio'] = df_hechos['estado_envio'].fillna('DESCONOCIDO').str.strip().str.upper()
 
-    # --- Role-Playing Dimension de Tiempo (sk_fecha_creacion y sk_fecha_envio) ---
     # Procesamiento sk_fecha_creacion (asumimos que siempre viene llena, pero nos protegemos)
     df_hechos['fecha_creacion_dt'] = pd.to_datetime(df_hechos['fecha_creacion'])
     df_hechos['sk_fecha_creacion'] = df_hechos['fecha_creacion_dt'].dt.strftime('%Y%m%d').fillna('-1').astype(int)

@@ -37,7 +37,7 @@ def diferencial_dim_tasa_cambio():
     df_origen['nk_id_tasa'] = df_origen['nk_id_tasa'].astype(int)
     df_origen['factor_cambio'] = df_origen['factor_cambio'].astype(float)
 
-    # B. Registros ACTIVOS en el destino (Data Warehouse)
+    # Registros ACTIVOS en el destino 
     query_destino = """
         SELECT 
             nk_id_tasa,
@@ -48,12 +48,12 @@ def diferencial_dim_tasa_cambio():
     """
     df_destino = pd.read_sql(query_destino, con=engine_destino)
 
-    # Cast de Hierro Destino
+    # Cast de  Destino
     if not df_destino.empty:
         df_destino['nk_id_tasa'] = df_destino['nk_id_tasa'].astype(int)
         df_destino['factor_cambio_dw'] = df_destino['factor_cambio_dw'].astype(float)
 
-    # TRANSFORMACIÓN (El motor del SCD Tipo 2)
+    # TRANSFORMACIÓN 
     print("-> 2. Detectando nuevas monedas y fluctuaciones en la tasa de cambio...")
     
     df_merge = pd.merge(

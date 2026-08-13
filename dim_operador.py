@@ -29,7 +29,7 @@ def cargar_dim_operador():
 
     # TRANSFORMACIÓN Y LIMPIEZA
 
-    print("-> 2. Estandarizando textos y aplicando SCD Tipo 2 (Forward-Looking)...")
+    print("-> 2. Estandarizando textos y aplicando SCD Tipo 2...")
 
     # --- Limpieza de Textos contra Nulos ---
     df_operador["nk_id_operador"] = (
@@ -55,9 +55,8 @@ def cargar_dim_operador():
         df_operador["prefijo_telefonico"].fillna("000").str.strip()
     )
 
-    # --- SCD Tipo 2 (Inyección de fechas artificiales) ---
-    # Como el origen no tiene historia, iniciamos el contador histórico desde el "inicio de los tiempos"
-    # y lo dejamos abierto hasta el año 2999.
+    # --- SCD Tipo 2  ---
+
     df_operador["fecha_inicio_vigencia"] = pd.to_datetime("1900-01-01").date()
     df_operador["fecha_fin_vigencia"] = pd.to_datetime("2999-12-31").date()
 
@@ -74,7 +73,7 @@ def cargar_dim_operador():
     ]
     df_final = df_operador[columnas_finales]
 
-    # CARGA PREVIA Y EJECUCIÓN (Idempotencia)
+    # CARGA PREVIA Y EJECUCIÓN 
 
     print("-> 3. Limpiando tabla dim_operador (CASCADE)...")
     with engine_destino.begin() as conn:
@@ -84,8 +83,22 @@ def cargar_dim_operador():
     df_final.to_sql(
         name="dim_operador", con=engine_destino, if_exists="append", index=False
     )
-
+    # Insertar el registro comodín (-1) para el manejo de nulos en la Fact Table
+    print("-> 5. Insertando registro comodín (-1)...")
+    with engine_destino.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO dim_operador (
+                sk_operador, nk_id_operador, nombre_operador, status, 
+                nk_id_pais, nombre_pais, prefijo_telefonico, 
+                fecha_inicio_vigencia, fecha_fin_vigencia
+            ) VALUES (
+                -1, 'N/A', 'DESCONOCIDO', 'N/A', 
+                'N/A', 'DESCONOCIDO', 'N/A', 
+                '1900-01-01', '2999-12-31'
+            ) ON CONFLICT (sk_operador) DO NOTHING;
+        """))
     print(f"¡Carga exitosa! Se insertaron {len(df_final)} registros en dim_operador.\n")
+
 
 
 if __name__ == "__main__":

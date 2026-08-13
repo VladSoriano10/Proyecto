@@ -7,9 +7,7 @@ from db_config import engine_destino, engine_origen, probar_conexiones
 def diferencial_fact_envio_tap():
     print("\n--- Iniciando Carga INCREMENTAL para fact_envio_tap ---")
 
-
     # LEER LA MARCA DE AGUA (sk_fecha_creacion)
-
     print("-> 1. Buscando la última fecha de envío cargada en el Data Warehouse...")
     
     # Usamos sk_fecha_creacion como nuestra marca de agua
@@ -74,7 +72,7 @@ def diferencial_fact_envio_tap():
     # Llenamos nulos con el comodín y forzamos a entero
     df_hechos['sk_operador'] = df_hechos['sk_operador'].fillna(-1).astype(int)
 
-    # 4. CARGA AL DATA WAREHOUSE
+    # CARGA AL DATA WAREHOUSE
     print("-> 4. Insertando registros en fact_envio_tap...")
 
     # Mapeo exacto basado en el DDL

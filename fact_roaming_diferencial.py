@@ -8,7 +8,7 @@ def diferencial_fact_roaming():
     print("\n--- Iniciando Carga INCREMENTAL para fact_roaming ---")
 
 
-    # LEER LA MARCA DE AGUA (sk_fecha)
+    # LEER LA(sk_fecha)
 
     print("-> 1. Buscando la última fecha cargada en el Data Warehouse...")
 

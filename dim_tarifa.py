@@ -29,7 +29,7 @@ def cargar_dim_tarifa():
     print("-> 2. Aplicando estandarización y reglas SCD Tipo 2...")
 
     # ---  Absorción del Catálogo de Servicios ---
-    # Traducimos el tráfico crudo al lenguaje de negocio\
+    # Traducimos el tráfico al lenguaje de negocio
     mapeo_servicios = {
         "GPRS": "GPRS - DATOS MÓVILES",
         "PORTAL": "PORTAL - VOZ",
@@ -85,6 +85,18 @@ def cargar_dim_tarifa():
         name="dim_tarifa", con=engine_destino, if_exists="append", index=False
     )
 
+    # Insertar el registro comodín (-1) para el manejo de nulos en la Fact Table
+    print("-> 5. Insertando registro comodín (-1)...")
+    with engine_destino.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO dim_tarifa (
+                sk_tarifa, nk_id_tarifa, tipo_trafico, costo_unidad, 
+                moneda, fecha_inicio_vigencia, fecha_fin_vigencia
+            ) VALUES (
+                -1, -1, 'N/A', 0.0, 
+                'N/A', '1900-01-01', '2999-12-31'
+            ) ON CONFLICT (sk_tarifa) DO NOTHING;
+        """))
     print(
         f"¡Carga exitosa! Se insertaron {len(df_final)} tarifas en dim_tarifa.\n"
     )

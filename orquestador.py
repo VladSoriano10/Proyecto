@@ -11,13 +11,11 @@ from fact_roaming import cargar_fact_roaming
 
 
 def ejecutar_carga_inicial():
-    print("=========================================================")
-    print("🚀 INICIANDO ORQUESTADOR DE CARGA INICIAL (DW MOVISTAR) 🚀")
-    print("=========================================================")
+    print("INICIANDO ORQUESTADOR DE CARGA INICIAL (DW MOVISTAR)")
     
     # 1. Verificación de conexiones
     if not probar_conexiones():
-        print("\n FALLA CRÍTICA: No se pudo conectar a las bases de datos. Abortando pipeline.")
+        print("\n FALLA: No se pudo conectar a las bases de datos. Abortando ejecución.")
         return
 
 
@@ -33,7 +31,7 @@ def ejecutar_carga_inicial():
 
     # 3. Ejecución secuencial con manejo de errores
     for paso in pasos_etl:
-        print(f"\n⏳ Ejecutando: {paso['nombre']}...")
+        print(f"\nEjecutando: {paso['nombre']}...")
         inicio_paso = time.time()
         
         try:
@@ -41,21 +39,19 @@ def ejecutar_carga_inicial():
             
             fin_paso = time.time()
             duracion = round(fin_paso - inicio_paso, 2)
-            print(f"✅ {paso['nombre']} completado exitosamente en {duracion} segundos.")
+            print(f"{paso['nombre']} completado exitosamente en {duracion} segundos.")
             
         except Exception as e:
             print(f"\n ERROR FATAL durante la ejecución de {paso['nombre']}.")
             print(f"Detalle técnico del error: {str(e)}")
-            print("Pipeline abortado. Revisa el error antes de continuar.")
+            print("abortado. Revisa el error antes de continuar.")
             return
 
     fin_total = time.time()
     duracion_total = round((fin_total - inicio_total) / 60, 2)
     
-    print("\n=========================================================")
-    print(f" PIPELINE COMPLETADO EXITOSAMENTE")
-    print(f"⏱️ Tiempo total de ejecución: {duracion_total} minutos.")
-    print("=========================================================")
+    print(f" COMPLETADO EXITOSAMENTE")
+    print(f"Tiempo total de ejecución: {duracion_total} minutos.")
 
 if __name__ == '__main__':
     ejecutar_carga_inicial()

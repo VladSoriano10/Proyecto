@@ -1,9 +1,7 @@
-# Archivo: run_pipeline.py
 import sys
 from datetime import datetime
 
-# Importamos EXCLUSIVAMENTE las funciones incrementales de nuestros scripts
-# Asegúrate de que los nombres de los archivos (.py) coincidan con los tuyos
+# Importamos las funciones incrementales de nuestros scripts
 try:
     from dim_operador_diferencial import diferencial_dim_operador
     from dim_tarifa_diferencial import diferencial_dim_tarifa
@@ -11,7 +9,7 @@ try:
     from fact_enviotap_diferencial import diferencial_fact_envio_tap
     from fact_roaming_diferencial import diferencial_fact_roaming
 except ImportError as e:
-    print(f"❌ Error al importar los módulos. Verifica los nombres de los archivos: {e}")
+    print(f"Error al importar los módulos. Verifica los nombres de los archivos: {e}")
     sys.exit(1)
 
 def run_orquestador_roaming():
@@ -44,7 +42,7 @@ def run_orquestador_roaming():
         print("="*60 + "\n")
 
     except Exception as e:
-        # Si CUALQUIER script falla, el pipeline aborta para proteger los datos
+        # Si CUALQUIER script falla, se aborta para proteger los datos
         print("\n" + "!"*60)
         print(f"ERROR FATAL EN LA CARGA: {e}")
         print("El proceso se detuvo de emergencia para proteger la integridad del DW.")

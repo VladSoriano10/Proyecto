@@ -61,8 +61,7 @@ def cargar_dim_tasa_cambio():
     ]
     df_final = df_tasa[columnas_finales]
 
-    # CARGA (Idempotencia)
-
+    # CARGA 
     print("-> 3. Limpiando tabla dim_tasa_cambio (CASCADE)...")
     with engine_destino.begin() as conn:
         conn.execute(text("TRUNCATE TABLE dim_tasa_cambio RESTART IDENTITY CASCADE;"))
@@ -74,7 +73,16 @@ def cargar_dim_tasa_cambio():
         if_exists='append', 
         index=False
     )
-    
+    # Insertar el registro comodín (-1) para el manejo de nulos en la Fact Table
+    print("-> 5. Insertando registro comodín (-1)...")
+    with engine_destino.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO dim_tasa_cambio (
+                sk_tasa, nk_id_tasa, moneda_origen, moneda_destino, factor_cambio, fecha_desde, fecha_hasta
+            ) VALUES (
+                -1, -1, 'N/A', 'N/A', 1.000000, '1900-01-01', '2999-12-31'
+            ) ON CONFLICT (sk_tasa) DO NOTHING;
+        """))
     print(f"¡Carga exitosa! Se insertaron {len(df_final)} tasas históricas en dim_tasa_cambio.\n")
 
 if __name__ == '__main__':
