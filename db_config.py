@@ -1,19 +1,22 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
 
-# CONFIGURACIÓN DEL SERVIDOR 
-
-USER = "postgres"  
-PASSWORD = "admin"  
-HOST = "localhost"
-PORT = "5432"
+# CONFIGURACIÓN DEL SERVIDOR
+USER = os.getenv("DB_USER", "postgres")
+PASSWORD = os.getenv("DB_PASSWORD", "admin")
+HOST = os.getenv("DB_HOST", "localhost")
+PORT = os.getenv("DB_PORT", "5432")
+DB_ORIGEN = os.getenv("DB_ORIGEN", "Roaming")
+DB_DESTINO = os.getenv("DB_DESTINO", "DWRoamingMovistarV2")
 
 # Cadenas de conexión
-str_origen = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/Roaming"
-str_destino = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/DWRoamingMovistarV2"
+str_origen = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DB_ORIGEN}"
+str_destino = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DB_DESTINO}"
 
-# Creación de los motores 
+# Creación de los motores
 engine_origen = create_engine(str_origen)
 engine_destino = create_engine(str_destino)
 

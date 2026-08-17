@@ -28,6 +28,20 @@ Con el entorno activado, ejecuta el siguiente comando para instalar las librerí
 ```Bash
 pip install -r requirements.txt
 ```
+
+Copiar .env.example en un nuevo archivo .env
+```
+cp .env.example .env
+```
+
+Si en VS Code en Python no logra detectar las configuraciones del .env, agregar esta configuracion al settings.json de su VS Code:
+```
+{
+    // ...
+    "python.terminal.useEnvFile": true,
+}
+```
+
 Configuración de la Base de Datos
 Antes de correr el código, debes configurar las credenciales de conexión.
 
@@ -43,3 +57,17 @@ Para ejecutar, asegúrate de tener tu entorno virtual activado y ejecuta:
 ```Bash
 python orquestador.py
 ```
+
+# Carga de Scripts iniciales para Contenedores de Docker
+
+En el siguiente orden cargar la data de la base de datos Roaming y las de DWRoamingMovistarV2 despues de creado el contenedor de docker.
+
+```
+pg_restore roaming.sql -> DB Transaccional Roaming
+psql creacionDW-ver2.sql -> DWRoamingMovistarV2
+psql dim_tiempo llenado.sql -> DWRoamingMovistarV2
+```
+
+TODO: 
+O Luego mover en un orden lexicografico los scripts que se utilizaran bajo un mismo orden en la carpeta init-db. 
+
