@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  db_origen:
+    image: postgres:18-alpine  
+    container_name: movistar_transaccional
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: Roaming
+    ports:
+      - "5434:5432"
+    volumes:
+      # CORRECCIÓN PG18+: Le quitamos el "/data" al final
+      - pgdata_origen:/var/lib/postgresql
+    restart: always
+
+  db_destino:
+    image: postgres:18-alpine  
+    container_name: movistar_datawarehouse
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: DWRoamingMovistarV2
+    ports:
+      - "5433:5432"
+    volumes:
+      # CORRECCIÓN PG18+: Le quitamos el "/data" al final
+      - pgdata_destino:/var/lib/postgresql
+    restart: always
+
+volumes:
+  pgdata_origen:
+  pgdata_destino:
