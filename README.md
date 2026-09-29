@@ -389,9 +389,29 @@ $env:DB_DESTINO = "DWMovistar"
 
 python db_config.py
 ```
+<<<<<<< HEAD
+=======
+
+Copiar .env.example en un nuevo archivo .env
+```
+cp .env.example .env
+```
+
+Si en VS Code en Python no logra detectar las configuraciones del .env, agregar esta configuracion al settings.json de su VS Code:
+```
+{
+    // ...
+    "python.terminal.useEnvFile": true,
+}
+```
+
+Configuración de la Base de Datos
+Antes de correr el código, debes configurar las credenciales de conexión.
+>>>>>>> 5da1743d954950ceb32b0bc2b847146535178115
 
 Adapta usuario, contraseña, bases y puertos a tu instalación. Para PostgreSQL local estándar, cambia las **tres variables de puerto** a `5432`. Si publicaste Docker en `5540`, utiliza `5540`. Las variables definidas así pertenecen a la sesión de terminal; una nueva terminal necesita su configuración.
 
+<<<<<<< HEAD
 Para el entorno antiguo de dos contenedores, después de configurar las demás variables:
 
 ```powershell
@@ -626,3 +646,73 @@ Los Compose y Dockerfiles pueden versionarse cuando se quieren compartir. Si un 
 - [Restauración con pg_restore](https://www.postgresql.org/docs/18/app-pgrestore.html).
 - [Variables de entorno en PowerShell](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_environment_variables).
 - [Archivos ignorados y archivos ya rastreados por Git](https://git-scm.com/docs/gitignore).
+=======
+Verifica que el usuario, contraseña, puerto (por defecto 5432) y nombres de las bases de datos (Origen y Destino) coincidan con tu configuración local de PostgreSQL para el caso de ocupar docker tambien cambiar los puertos.
+
+Markdown
+## 🐳 (Docker)
+
+este proyecto utiliza **Docker** y **Docker Compose**. La arquitectura separa físicamente la carga transaccional (OLTP) de la carga analítica (OLAP) en contenedores independientes de PostgreSQL 18.
+
+### ⚙️ Topología de Contenedores
+| Servidor (Contenedor) | Rol | Base de Datos | Puerto Expuesto |
+| :--- | :--- | :--- | :--- |
+| `movistar_transaccional` | Origen (OLTP) | `Roaming` | `5434` |
+| `movistar_datawarehouse` | Destino (OLAP) | `DWRoamingMovistar` | `5433` |
+
+---
+
+### Despliegue Local
+
+#### 1. Levantar los Servidores
+Asegúrate de tener Docker Desktop ejecutándose. Abre una terminal en la raíz del proyecto y ejecuta:
+```bash
+# Levanta la infraestructura en segundo plano
+docker-compose up -d
+(Para detener la infraestructura en el futuro, utiliza docker-compose down).
+```
+2. Restaurar la Base de Datos Transaccional (Origen)
+Se debe inyectar el backup lógico en el contenedor transaccional para simular la data histórica operativa:
+
+```Bash
+# Copiar el archivo de backup al contenedor
+docker cp backups_bd/backup_Roaming_20260813_210852.sql movistar_transaccional:/tmp/backup.sql
+
+# Ejecutar la restauración de la base de datos
+docker exec -it movistar_transaccional pg_restore -U postgres -d Roaming -1 /tmp/backup.sql
+```
+
+# Carga de Scripts iniciales para Contenedores de Docker
+
+En el siguiente orden cargar la data de la base de datos Roaming y las de DWRoamingMovistarV2 despues de creado el contenedor de docker.
+
+```
+pg_restore roaming.sql -> DB Transaccional Roaming
+psql creacionDW-ver2.sql -> DWRoamingMovistarV2
+psql dim_tiempo llenado.sql -> DWRoamingMovistarV2
+```
+
+TODO: 
+O Luego mover en un orden lexicografico los scripts que se utilizaran bajo un mismo orden en la carpeta init-db. 
+
+3. Construir el Data Warehouse (Destino)
+El contenedor del Data Warehouse inicia vacío. Debemos construir el esquema en estrella e inyectar la dimensión de tiempo:
+
+```Bash
+# 3.1 Copiar los scripts SQL al contenedor
+docker cp creacionDW-ver2.sql movistar_datawarehouse:/tmp/creacionDW-ver2.sql
+docker cp "dim_tiempo llenado.sql" movistar_datawarehouse:"/tmp/dim_tiempo llenado.sql"
+
+# 3.2 Crear las tablas de Dimensiones y Hechos
+docker exec -it movistar_datawarehouse psql -U postgres -d DWRoamingMovistarV2 -f /tmp/creacionDW-ver2.sql
+
+# 3.3 Poblar la Dimensión Tiempo
+docker exec -it movistar_datawarehouse psql -U postgres -d DWRoamingMovistarV2 -f "/tmp/dim_tiempo llenado.sql"
+```
+
+4. Ejecución del llenado ETL
+Una vez que ambos servidores están en línea y estructurados, activa tu entorno virtual y ejecuta el orquestador maestro:
+
+Bash
+python orquestador_etl.py
+>>>>>>> 5da1743d954950ceb32b0bc2b847146535178115
