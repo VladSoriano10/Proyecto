@@ -3,11 +3,11 @@ import time
 from db_config import probar_conexiones
 
 # Importamos las funciones principales de cada script ETL 
-from dim_operador import cargar_dim_operador
-from dim_tarifa import cargar_dim_tarifa
-from dim_tasa_cambio import cargar_dim_tasa_cambio
-from fact_envio_tap import cargar_fact_envio_tap
-from fact_roaming import cargar_fact_roaming
+from cargas_iniciales.dim_operador import cargar_dim_operador
+from cargas_iniciales.dim_tarifa import cargar_dim_tarifa
+from cargas_iniciales.dim_tasa_cambio import cargar_dim_tasa_cambio
+from cargas_iniciales.fact_envio_tap import cargar_fact_envio_tap
+from cargas_iniciales.fact_roaming import cargar_fact_roaming
 
 
 def ejecutar_carga_inicial():

@@ -1,7 +1,7 @@
 """Reconciliación por fecha: registros tardíos y una sola versión por consumo."""
 
 from db_config import engine_destino, engine_origen, probar_conexiones
-from etl_diferencial_utils import reconciliar_fact
+from .etl_diferencial_utils import reconciliar_fact
 
 
 CONSULTA_ORIGEN = """

@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 from sqlalchemy import text
 from db_config import engine_destino, engine_origen, probar_conexiones
-from etl_diferencial_utils import (FIN_FECHA, cadena, fecha, leer, insertar,
+from .etl_diferencial_utils import (FIN_FECHA, cadena, fecha, leer, insertar,
                                   actualizar, unicos, verificar_vigencias)
 
 

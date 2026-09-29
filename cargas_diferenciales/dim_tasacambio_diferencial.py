@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from db_config import engine_destino, engine_origen, probar_conexiones
-from etl_diferencial_utils import FIN_INSTANTE, cadena, instante, decimal, leer, sincronizar_catalogo
+from .etl_diferencial_utils import FIN_INSTANTE, cadena, instante, decimal, leer, sincronizar_catalogo
 
 
 def diferencial_dim_tasa_cambio(momento_corte=None):

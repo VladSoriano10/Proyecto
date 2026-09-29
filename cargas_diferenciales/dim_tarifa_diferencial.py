@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 from sqlalchemy import text
 from db_config import engine_destino, engine_origen, probar_conexiones
-from etl_diferencial_utils import FIN_FECHA, cadena, fecha, decimal, leer, sincronizar_catalogo
+from .etl_diferencial_utils import FIN_FECHA, cadena, fecha, decimal, leer, sincronizar_catalogo
 
 
 def diferencial_dim_tarifa(fecha_corte=None):
