@@ -1,139 +1,37 @@
-from datetime import datetime, timedelta
+"""Tarifas históricas y cambios de costo, servicio, moneda y vigencia."""
 
-import pandas as pd
+from datetime import date, timedelta
 from sqlalchemy import text
-
 from db_config import engine_destino, engine_origen, probar_conexiones
+from etl_diferencial_utils import FIN_FECHA, cadena, fecha, decimal, leer, sincronizar_catalogo
 
 
-def diferencial_dim_tarifa():
-    print("\n--- Iniciando Carga INCREMENTAL (SCD Tipo 2) para dim_tarifa ---")
+def diferencial_dim_tarifa(fecha_corte=None):
+    corte = fecha(fecha_corte) if fecha_corte is not None else date.today()
+    with engine_origen.connect() as origen:
+        filas = leer(origen, """SELECT id_tarifa AS nk_id_tarifa, tipo_trafico,
+            costo_unidad, moneda, fecha_inicio_vigencia, fecha_fin_vigencia FROM tarifas""")
+    servicios = {"GPRS": "GPRS - DATOS MÓVILES", "PORTAL": "PORTAL - VOZ", "CAMEL": "CAMEL - EVENTOS"}
+    for fila in filas:
+        fila["nk_id_tarifa"] = int(fila["nk_id_tarifa"])
+        servicio = cadena(fila["tipo_trafico"], "DESCONOCIDO")
+        fila["tipo_trafico"] = servicios.get(servicio, servicio)
+        fila["costo_unidad"] = decimal(fila["costo_unidad"], 4)
+        fila["moneda"] = cadena(fila["moneda"], "USD")
+        fila["fecha_inicio_vigencia"] = fecha(fila["fecha_inicio_vigencia"])
+        fila["fecha_fin_vigencia"] = fecha(fila["fecha_fin_vigencia"]) if fila["fecha_fin_vigencia"] else FIN_FECHA
+    with engine_destino.begin() as destino:
+        destino.execute(text("LOCK TABLE dim_tarifa IN SHARE ROW EXCLUSIVE MODE"))
+        destino.execute(text("""INSERT INTO dim_tarifa VALUES
+            (-1,-1,'DESCONOCIDO',0,'N/A','1900-01-01','2999-12-31')
+            ON CONFLICT (sk_tarifa) DO NOTHING"""))
+        resumen = sincronizar_catalogo(destino, "dim_tarifa", "sk_tarifa", "nk_id_tarifa", filas,
+            ["tipo_trafico", "costo_unidad", "moneda"], "fecha_inicio_vigencia",
+            "fecha_fin_vigencia", corte, timedelta(days=1))
+    print(f"dim_tarifa: {resumen}")
+    return resumen
 
-    # Fechas de control
-    fecha_hoy = datetime.now().date()
-    fecha_ayer = fecha_hoy - timedelta(days=1)
-    fecha_fin_tiempos = pd.to_datetime('2999-12-31').date()
 
-
-    # EXTRACCIÓN 
-    print("-> 1. Extrayendo datos actuales del origen y del Data Warehouse...")
-    
-    # A. Datos de hoy en el origen 
-    query_origen = """
-        SELECT 
-            id_tarifa AS nk_id_tarifa,
-            tipo_trafico,
-            costo_unidad,
-            moneda
-        FROM tarifas;
-    """
-    df_origen = pd.read_sql(query_origen, con=engine_origen)
-
-    # Transformaciones de negocio 
-    mapeo_servicios = {
-        'GPRS': 'GPRS - DATOS MÓVILES',
-        'PORTAL': 'PORTAL - VOZ',
-        'CAMEL': 'CAMEL - EVENTOS'
-    }
-    df_origen['tipo_trafico'] = df_origen['tipo_trafico'].str.strip().str.upper().replace(mapeo_servicios)
-    df_origen['moneda'] = df_origen['moneda'].fillna('USD').str.strip().str.upper()
-    
-    # casteo Aseguramos tipos de datos estrictos
-    df_origen['nk_id_tarifa'] = df_origen['nk_id_tarifa'].astype(int)
-    df_origen['costo_unidad'] = df_origen['costo_unidad'].astype(float)
-
-    # Registros ACTIVOS en el destino (Data Warehouse)
-    query_destino = """
-        SELECT 
-            nk_id_tarifa, 
-            costo_unidad AS costo_unidad_dw,
-            tipo_trafico AS tipo_trafico_dw
-        FROM dim_tarifa 
-        WHERE fecha_fin_vigencia = '2999-12-31' 
-        AND sk_tarifa != -1;
-    """
-    df_destino = pd.read_sql(query_destino, con=engine_destino)
-
-    # casteo Aseguramos tipos de datos estrictos
-    if not df_destino.empty:
-        df_destino['nk_id_tarifa'] = df_destino['nk_id_tarifa'].astype(int)
-        df_destino['costo_unidad_dw'] = df_destino['costo_unidad_dw'].astype(float)
-        df_destino['tipo_trafico_dw'] = df_destino['tipo_trafico_dw'].str.strip().str.upper()
-
-    # 2. TRANSFORMACIÓN 
-    print("-> 2. Detectando tarifas nuevas y cambios de precio...")
-    
-    # CRUZAMOS LAS TABLAS 
-    df_merge = pd.merge(
-        df_origen, 
-        df_destino, 
-        on='nk_id_tarifa', 
-        how='left'
-    )
-
-    # Tarifas totalmente nuevas 
-    df_nuevos = df_merge[df_merge['costo_unidad_dw'].isna()].copy()
-    
-    # Tarifas modificadas (El costo o el tipo de tráfico cambió)
-    # Redondeamos a 4 decimales para eliminar falsos positivos de precisión flotante
-    df_cambios = df_merge[
-        (df_merge['costo_unidad_dw'].notna()) & 
-        (
-            (df_merge['costo_unidad'].round(4) != df_merge['costo_unidad_dw'].round(4)) |
-            (df_merge['tipo_trafico'] != df_merge['tipo_trafico_dw'])
-        )
-    ].copy()
-
-    print(f"   - Se detectaron {len(df_nuevos)} tarifas nuevas.")
-    print(f"   - Se detectaron {len(df_cambios)} tarifas con cambio de precio/servicio.")
-
-    if len(df_nuevos) == 0 and len(df_cambios) == 0:
-        print("-> 3. No hay cambios para procesar. El DW está actualizado.\n")
-        return
-
-    #  CARGA 
-    with engine_destino.begin() as conn:
-        
-        # ---  Cerrar los registros viejos (UPDATE) ---
-        if not df_cambios.empty:
-            print("-> 3A. Cerrando historial antiguo de las tarifas modificadas...")
-            for index, row in df_cambios.iterrows():
-                update_sql = text("""
-                    UPDATE dim_tarifa 
-                    SET fecha_fin_vigencia = :fecha_cierre 
-                    WHERE nk_id_tarifa = :nk_id 
-                    AND fecha_fin_vigencia = '2999-12-31'
-                """)
-                conn.execute(update_sql, {
-                    "fecha_cierre": fecha_ayer, 
-                    "nk_id": int(row['nk_id_tarifa'])
-                })
-
-        # --- Insertar lo nuevo  ---
-        print("-> 3B. Insertando nuevas tarifas y el nuevo historial de precios...")
-        
-        df_a_insertar = pd.concat([df_nuevos, df_cambios]).copy()
-        
-        # Inyectamos las fechas generadas
-        df_a_insertar['fecha_inicio_vigencia'] = fecha_hoy
-        df_a_insertar['fecha_fin_vigencia'] = fecha_fin_tiempos
-
-        # Mapeo exacto de las columnas de la BD
-        columnas_finales = [
-            'nk_id_tarifa', 'tipo_trafico', 'costo_unidad', 'moneda', 
-            'fecha_inicio_vigencia', 'fecha_fin_vigencia'
-        ]
-        df_final = df_a_insertar[columnas_finales]
-
-        df_final.to_sql(
-            name='dim_tarifa', 
-            con=conn, 
-            if_exists='append', 
-            index=False
-        )
-
-    print("¡Carga incremental finalizada con éxito! El historial de precios (SCD Tipo 2) se ha preservado.\n")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     if probar_conexiones():
         diferencial_dim_tarifa()

@@ -1,0 +1,44 @@
+# Uso: docker compose -p movistar-vlad -f docker-compose-vlad.yml up -d --wait postgres
+# Mantiene las dos bases en una instancia, como el Compose de GitHub.
+name: movistar-vlad
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: movistar_postgres_vlad
+    env_file:
+      - ./vlad.env
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5532:5432"
+    volumes:
+      # PostgreSQL 18 utiliza este directorio padre para persistir sus datos.
+      - postgres_data_vlad:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  etl:
+    # Solo se ejecuta cuando se solicita expresamente con "run --rm etl ...".
+    profiles: ["manual"]
+    env_file:
+      - ./vlad.env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    # Sustituye el arranque por defecto de la imagen para elegir cada script.
+    entrypoint: ["python"]
+    command: ["db_config.py"]
+    restart: "no"
+
+volumes:
+  postgres_data_vlad:

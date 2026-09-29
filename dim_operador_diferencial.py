@@ -1,127 +1,62 @@
-from datetime import datetime, timedelta
+"""SCD tipo 2 de operador; resolución diaria, compatible con el DDL actual."""
 
-import pandas as pd
+from datetime import date, timedelta
 from sqlalchemy import text
-
 from db_config import engine_destino, engine_origen, probar_conexiones
+from etl_diferencial_utils import (FIN_FECHA, cadena, fecha, leer, insertar,
+                                  actualizar, unicos, verificar_vigencias)
 
 
-def diferencial_dim_operador():
-    print("\n--- Iniciando Carga INCREMENTAL (SCD Tipo 2) para dim_operador ---")
-
-    # Fechas de control
-    fecha_hoy = datetime.now().date()
-    fecha_ayer = fecha_hoy - timedelta(days=1)
-    fecha_fin_tiempos = pd.to_datetime('2999-12-31').date()
-
-    # 1. EXTRACCIÓN 
-    print("-> 1. Extrayendo datos actuales del origen y del Data Warehouse...")
-    
-    # A. Datos de hoy en el origen 
-    query_origen = """
-        SELECT 
-            o.id_operador AS nk_id_operador,
-            COALESCE(o.nombre_operador, 'OPERADOR DESCONOCIDO') AS nombre_operador,
-            COALESCE(o.status, 'DESCONOCIDO') AS status,
-            COALESCE(o.id_pais, 'N/D') AS nk_id_pais,
-            COALESCE(p.nombre_pais, 'PAÍS DESCONOCIDO') AS nombre_pais,
-            COALESCE(p.prefijo_telefonico, '000') AS prefijo_telefonico
-        FROM operadores o
-        LEFT JOIN pais p ON o.id_pais = p.id_pais;
-    """
-    df_origen = pd.read_sql(query_origen, con=engine_origen)
-    # Estandarización rápida
-    for col in df_origen.columns:
-        if df_origen[col].dtype == 'object':
-            df_origen[col] = df_origen[col].str.strip().str.upper()
-
-    #  Registros ACTIVOS en el destino (Data Warehouse)
-    query_destino = """
-        SELECT 
-            nk_id_operador, 
-            status AS status_dw
-        FROM dim_operador 
-        WHERE fecha_fin_vigencia = '2999-12-31' 
-        AND sk_operador != -1;
-    """
-    df_destino = pd.read_sql(query_destino, con=engine_destino)
-
-    # TRANSFORMACIÓN ( SCD Tipo 2)
-    print("-> 2. Detectando operadores nuevos y cambios de estado...")
-    
-    # Cruzamos origen con destino para comparar
-    df_merge = pd.merge(
-        df_origen, 
-        df_destino, 
-        on='nk_id_operador', 
-        how='left'
-    )
-
-    # REGLA 1: Registros totalmente nuevos (No existen en el DW)
-    df_nuevos = df_merge[df_merge['status_dw'].isna()].copy()
-    
-    # REGLA 2: Registros modificados (Existen, pero su status cambió)
-    # Ejemplo: En el DW estaba 'ACTIVO' y hoy en el origen viene 'INACTIVO'
-    df_cambios = df_merge[
-        (df_merge['status_dw'].notna()) & 
-        (df_merge['status'] != df_merge['status_dw'])
-    ].copy()
-
-    print(f"   - Se detectaron {len(df_nuevos)} operadores nuevos.")
-    print(f"   - Se detectaron {len(df_cambios)} operadores con cambio de estado.")
-
-    if len(df_nuevos) == 0 and len(df_cambios) == 0:
-        print("-> 3. No hay cambios para procesar. El DW está actualizado.\n")
-        return
+def diferencial_dim_operador(fecha_corte=None):
+    corte = fecha(fecha_corte) if fecha_corte is not None else date.today()
+    with engine_origen.connect() as origen:
+        filas = leer(origen, """SELECT o.id_operador AS nk_id_operador,
+            o.nombre_operador, o.status, o.id_pais AS nk_id_pais,
+            p.nombre_pais, p.prefijo_telefonico
+            FROM operadores o LEFT JOIN pais p ON p.id_pais=o.id_pais""")
+    defaults = {"nk_id_operador": "", "nombre_operador": "OPERADOR DESCONOCIDO",
+                "status": "DESCONOCIDO", "nk_id_pais": "N/D",
+                "nombre_pais": "PAÍS DESCONOCIDO", "prefijo_telefonico": "000"}
+    filas = [{col: cadena(f[col], defecto) for col, defecto in defaults.items()} for f in filas]
+    atributos = [col for col in defaults if col != "nk_id_operador"]
+    resumen = {"insertadas": 0, "versiones_nuevas": 0, "correcciones_mismo_dia": 0}
+    with engine_destino.begin() as destino:
+        destino.execute(text("LOCK TABLE dim_operador IN SHARE ROW EXCLUSIVE MODE"))
+        destino.execute(text("""INSERT INTO dim_operador VALUES
+            (-1,'N/A','DESCONOCIDO','N/A','N/A','DESCONOCIDO','N/A','1900-01-01','2999-12-31')
+            ON CONFLICT (sk_operador) DO NOTHING"""))
+        historiales = verificar_vigencias(leer(destino, "SELECT * FROM dim_operador WHERE sk_operador<>-1"),
+            "nk_id_operador", "fecha_inicio_vigencia", "fecha_fin_vigencia")
+        for llave, nueva in unicos(filas, "nk_id_operador").items():
+            versiones = historiales.get(llave, [])
+            if not versiones:
+                # Misma convención que la carga inicial: historia previa desconocida.
+                insertar(destino, "dim_operador", [dict(nueva,
+                    fecha_inicio_vigencia=date(1900, 1, 1), fecha_fin_vigencia=FIN_FECHA)])
+                resumen["insertadas"] += 1
+                continue
+            ultima = versiones[-1]
+            if corte < ultima["fecha_inicio_vigencia"]:
+                raise ValueError(f"Fecha de corte anterior al historial del operador {llave}.")
+            cambios = {col: nueva[col] for col in atributos if nueva[col] != ultima[col]}
+            if not cambios:
+                continue
+            if ultima["fecha_inicio_vigencia"] == corte:
+                actualizar(destino, "dim_operador", "sk_operador", ultima["sk_operador"], cambios)
+                resumen["correcciones_mismo_dia"] += 1
+            else:
+                if ultima["fecha_fin_vigencia"] >= corte:
+                    actualizar(destino, "dim_operador", "sk_operador", ultima["sk_operador"],
+                               {"fecha_fin_vigencia": corte - timedelta(days=1)})
+                insertar(destino, "dim_operador", [dict(nueva,
+                    fecha_inicio_vigencia=corte, fecha_fin_vigencia=FIN_FECHA)])
+                resumen["versiones_nuevas"] += 1
+        verificar_vigencias(leer(destino, "SELECT * FROM dim_operador WHERE sk_operador<>-1"),
+            "nk_id_operador", "fecha_inicio_vigencia", "fecha_fin_vigencia")
+    print(f"dim_operador: {resumen}")
+    return resumen
 
 
-    # 3. CARGA 
-    with engine_destino.begin() as conn:
-        
-        # --- Cerrar los registros viejos (UPDATE) ---
-        if not df_cambios.empty:
-            print("-> 3A. Cerrando historial antiguo de los operadores modificados...")
-            for index, row in df_cambios.iterrows():
-                # Cerramos el registro anterior poniéndole fecha de caducidad (ayer)
-                update_sql = text("""
-                    UPDATE dim_operador 
-                    SET fecha_fin_vigencia = :fecha_cierre 
-                    WHERE nk_id_operador = :nk_id 
-                    AND fecha_fin_vigencia = '2999-12-31'
-                """)
-                conn.execute(update_sql, {
-                    "fecha_cierre": fecha_ayer, 
-                    "nk_id": row['nk_id_operador']
-                })
-
-        # ---  Insertar lo nuevo  ---
-        print("-> 3B. Insertando registros nuevos y las nuevas versiones históricas...")
-        
-        # Unimos los nuevos operadores con las "nuevas versiones" de los modificados
-        df_a_insertar = pd.concat([df_nuevos, df_cambios]).copy()
-        
-        # Les asignamos las fechas de vigencia
-        df_a_insertar['fecha_inicio_vigencia'] = fecha_hoy
-        df_a_insertar['fecha_fin_vigencia'] = fecha_fin_tiempos
-
-        # Seleccionamos solo las columnas de la tabla final
-        columnas_finales = [
-            'nk_id_operador', 'nombre_operador', 'status', 
-            'nk_id_pais', 'nombre_pais', 'prefijo_telefonico', 
-            'fecha_inicio_vigencia', 'fecha_fin_vigencia'
-        ]
-        df_final = df_a_insertar[columnas_finales]
-
-        # Inserción masiva
-        df_final.to_sql(
-            name='dim_operador', 
-            con=conn, # Usamos la misma conexión de la transacción
-            if_exists='append', 
-            index=False
-        )
-
-    print("¡Carga incremental finalizada con éxito! El historial (SCD Tipo 2) se ha preservado.\n")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     if probar_conexiones():
         diferencial_dim_operador()
