@@ -389,7 +389,7 @@ $env:DB_DESTINO = "DWMovistar"
 
 python db_config.py
 ```
-<<<<<<< HEAD
+
 =======
 
 Copiar .env.example en un nuevo archivo .env
@@ -411,7 +411,7 @@ Antes de correr el código, debes configurar las credenciales de conexión.
 
 Adapta usuario, contraseña, bases y puertos a tu instalación. Para PostgreSQL local estándar, cambia las **tres variables de puerto** a `5432`. Si publicaste Docker en `5540`, utiliza `5540`. Las variables definidas así pertenecen a la sesión de terminal; una nueva terminal necesita su configuración.
 
-<<<<<<< HEAD
+
 Para el entorno antiguo de dos contenedores, después de configurar las demás variables:
 
 ```powershell
@@ -715,4 +715,4 @@ Una vez que ambos servidores están en línea y estructurados, activa tu entorno
 
 Bash
 python orquestador_etl.py
->>>>>>> 5da1743d954950ceb32b0bc2b847146535178115
+
