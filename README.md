@@ -20,7 +20,7 @@ La plantilla incluida utiliza **una instancia de PostgreSQL con dos bases separa
 ## 2. Requisitos
 
 - Docker Desktop y Docker Compose v2 para las modalidades que utilizan Docker. Los comandos de esta guía usan `docker compose`.
-- Python y `venv` si el ETL se ejecuta desde Windows. La configuración de referencia de Vlad utiliza **Python 3.14.3**. El proyecto compartido también ha utilizado Python 3.11; cada integrante debe usar una versión compatible con su `requirements.txt`.
+- Python y `venv` si el ETL se ejecuta desde Windows. La configuración de referencia que se utilizan son **Python 3.14.3**. El proyecto compartido también ha utilizado Python 3.11; cada integrante debe usar una versión compatible con su `requirements.txt`.
 - Dependencias del proyecto en `requirements.txt`, entre ellas pandas, SQLAlchemy y un controlador compatible con `postgresql+psycopg2`, como `psycopg2-binary`.
 - Respaldo de origen y los dos scripts del DW: `creacionDW-ver2.sql` y `dim_tiempo llenado.sql`.
 - DBeaver o pgAdmin, opcionales para consultar las bases y ejecutar los SQL de pruebas.
