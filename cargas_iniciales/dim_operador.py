@@ -1,108 +1,12 @@
-import pandas as pd
-from sqlalchemy import text
+"""Carga inicial de dim_operador; usa la misma limpieza que el diferencial."""
+from db_config import engine_origen, engine_destino
+from control_cargas import registrar_carga
+from etl_catalogos import extraer_operadores, cargar_catalogo_inicial
 
-from db_config import engine_destino, engine_origen, probar_conexiones
-
-
+@registrar_carga("dim_operador", "INICIAL")
 def cargar_dim_operador():
-    print("\n--- Iniciando proceso ETL (Carga Inicial) para dim_operador ---")
-
-    
-    # EXTRACCIÓN    
-    print("-> 1. Extrayendo operadores y países de la base 'Roaming'...")
-
-    # Extraemos la data ya cruzada desde el motor transaccional
-    query = """
-        SELECT 
-            o.id_operador AS nk_id_operador,
-            o.nombre_operador,
-            o.status,
-            o.id_pais AS nk_id_pais,
-            p.nombre_pais,
-            p.prefijo_telefonico
-        FROM operadores o
-        LEFT JOIN pais p ON o.id_pais = p.id_pais;
-    """
-    df_operador = pd.read_sql(query, con=engine_origen)
-    print(f"   Se extrajeron {len(df_operador)} operadores del origen.")
-
-
-    # TRANSFORMACIÓN Y LIMPIEZA
-
-    print("-> 2. Estandarizando textos y aplicando SCD Tipo 2...")
-
-    # --- Limpieza de Textos contra Nulos ---
-    df_operador["nk_id_operador"] = (
-        df_operador["nk_id_operador"].str.strip().str.upper()
-    )
-    df_operador["nombre_operador"] = (
-        df_operador["nombre_operador"]
-        .fillna("OPERADOR DESCONOCIDO")
-        .str.strip()
-        .str.upper()
-    )
-    df_operador["status"] = (
-        df_operador["status"].fillna("DESCONOCIDO").str.strip().str.upper()
-    )
-
-    df_operador["nk_id_pais"] = (
-        df_operador["nk_id_pais"].fillna("N/D").str.strip().str.upper()
-    )
-    df_operador["nombre_pais"] = (
-        df_operador["nombre_pais"].fillna("PAÍS DESCONOCIDO").str.strip().str.upper()
-    )
-    df_operador["prefijo_telefonico"] = (
-        df_operador["prefijo_telefonico"].fillna("000").str.strip()
-    )
-
-    # --- SCD Tipo 2  ---
-
-    df_operador["fecha_inicio_vigencia"] = pd.to_datetime("1900-01-01").date()
-    df_operador["fecha_fin_vigencia"] = pd.to_datetime("2999-12-31").date()
-
-    # Mapeo de las columnas para alinear con el nuevo DDL
-    columnas_finales = [
-        "nk_id_operador",
-        "nombre_operador",
-        "status",
-        "nk_id_pais",
-        "nombre_pais",
-        "prefijo_telefonico",
-        "fecha_inicio_vigencia",
-        "fecha_fin_vigencia",
-    ]
-    df_final = df_operador[columnas_finales]
-
-    # CARGA PREVIA Y EJECUCIÓN 
-
-    print("-> 3. Limpiando tabla dim_operador (CASCADE)...")
-    with engine_destino.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE dim_operador RESTART IDENTITY CASCADE;"))
-
-    print("-> 4. Cargando el catálogo maestro de operadores a 'DWRoamingMovistar'...")
-    df_final.to_sql(
-        name="dim_operador", con=engine_destino, if_exists="append", index=False
-    )
-    # Insertar el registro comodín (-1) para el manejo de nulos en la Fact Table
-    print("-> 5. Insertando registro comodín (-1)...")
-    with engine_destino.begin() as conn:
-        conn.execute(text("""
-            INSERT INTO dim_operador (
-                sk_operador, nk_id_operador, nombre_operador, status, 
-                nk_id_pais, nombre_pais, prefijo_telefonico, 
-                fecha_inicio_vigencia, fecha_fin_vigencia
-            ) VALUES (
-                -1, 'N/A', 'DESCONOCIDO', 'N/A', 
-                'N/A', 'DESCONOCIDO', 'N/A', 
-                '1900-01-01', '2999-12-31'
-            ) ON CONFLICT (sk_operador) DO NOTHING;
-        """))
-    print(f"¡Carga exitosa! Se insertaron {len(df_final)} registros en dim_operador.\n")
-
-
+    filas = extraer_operadores(engine_origen)
+    return cargar_catalogo_inicial(engine_destino, "dim_operador", filas)
 
 if __name__ == "__main__":
-    if probar_conexiones():
-        cargar_dim_operador()
-    else:
-        print("\n Proceso ETL abortado debido a problemas de conexión.")
+    cargar_dim_operador()
