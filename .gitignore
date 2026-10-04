@@ -133,7 +133,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
+_init_.py
+init-db/
 # Spyder project settings
 .spyderproject
 .spyproject
