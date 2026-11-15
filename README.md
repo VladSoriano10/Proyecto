@@ -4,7 +4,7 @@ Proyecto académico de ingeniería de datos para integrar y analizar consumos de
 
 El proyecto permite ejecutar Python desde una terminal local o desde Docker. Las bases de origen y destino pueden estar en PostgreSQL local, en una misma instancia de Docker o en servidores separados.
 
-> **Si ya tienes las bases restauradas y las cargas iniciales terminadas, conserva ese entorno. Actualizar este README no requiere volver a restaurar, crear volúmenes ni repetir cargas iniciales.** La plantilla Docker de esta guía es una opción para instalaciones nuevas, no una migración automática de los entornos existentes.
+La plantilla Docker de esta guía es una opción para instalaciones nuevas, no una migración automática de los entornos existentes.
 
 ## 1. Elegir el modo de ejecución
 
@@ -20,7 +20,7 @@ La plantilla incluida utiliza **una instancia de PostgreSQL con dos bases separa
 ## 2. Requisitos
 
 - Docker Desktop y Docker Compose v2 para las modalidades que utilizan Docker. Los comandos de esta guía usan `docker compose`.
-- Python y `venv` si el ETL se ejecuta desde Windows. La configuración de referencia que se utilizan son **Python 3.14.3**. El proyecto compartido también ha utilizado Python 3.11; cada integrante debe usar una versión compatible con su `requirements.txt`.
+- Python y `venv` si el ETL se ejecuta desde Windows. El Dockerfile actual utiliza **Python 3.14.3**. El proyecto compartido también ha utilizado Python 3.11; cada integrante debe usar una versión compatible con su `requirements.txt`.
 - Dependencias del proyecto en `requirements.txt`, entre ellas pandas, SQLAlchemy y un controlador compatible con `postgresql+psycopg2`, como `psycopg2-binary`.
 - Respaldo de origen y los dos scripts del DW: `creacionDW-ver2.sql` y `dim_tiempo llenado.sql`.
 - DBeaver o pgAdmin, opcionales para consultar las bases y ejecutar los SQL de pruebas.
@@ -36,9 +36,14 @@ Los ejemplos de terminal están escritos para **PowerShell**, desde la raíz del
 | `db_config.py` | Conexiones compartidas por las cargas iniciales y diferenciales |
 | `requirements.txt` | Dependencias del proyecto; conservar las versiones acordadas por el equipo |
 | `orquestador.py` | Carga inicial de dimensiones y hechos |
-| `orquestador_diferencial.py` | Cargas diferenciales; la versión de pruebas admite `--fecha-corte` |
-| `etl_diferencial_utils.py` | Funciones auxiliares requeridas por los diferenciales corregidos |
-| `creacionDW-ver2.sql` | Tablas y relaciones del DW |
+| `orquestador_diferencial.py` | Diferencial completo; admite un corte SCD opcional con `--fecha-corte` |
+| `cargas_iniciales/` | Entradas de la carga inicial por dimensión y hecho |
+| `cargas_diferenciales/` | Entradas diferenciales; contiene `etl_diferencial_utils.py` de compatibilidad |
+| `etl_catalogos.py` | Extracción y normalización compartida de catálogos |
+| `etl_comun.py` | Validación de vigencias, sincronización de catálogos y conciliación de hechos |
+| `etl_hechos.py` | Consultas de extracción y asignación de claves para las dos facts |
+| `control_cargas.py` | Transacción del lote, bloqueo de concurrencia y bitácora |
+| `creacionDW-ver2.sql` | Cuatro dimensiones, dos facts y tabla técnica `control_cargas` |
 | `dim_tiempo llenado.sql` | Calendario de 2020 a 2030 |
 | `backups_bd/` | Respaldos de origen, fuera de la imagen de Python |
 | `compose.personal.yml` | Plantilla Docker opcional para una instalación propia |
@@ -46,6 +51,8 @@ Los ejemplos de terminal están escritos para **PowerShell**, desde la raíz del
 | `Dockerfile.personal.dockerignore` | Archivos excluidos de esa construcción |
 | `.env.personal.example` | Plantilla de variables para Docker, compartible en Git |
 | `.env.personal` | Configuración local de cada integrante, creada desde la plantilla |
+
+Los archivos `compose.personal.yml`, `Dockerfile.personal`, su `.dockerignore` y `.env.personal.example` son **plantillas que debes crear con los bloques del apartado 5**; no se presupone que existan en el repositorio. Los Compose que sí existen son `docker-compose-vlad.yml` y `docker-compose.yaml`. El primero corresponde al entorno de Vlad. Revisa el segundo antes de usarlo: conserva una configuración distinta y autenticación `trust` para inicialización.
 
 Cada persona puede cambiar los nombres, por ejemplo `docker-compose-ana.yml`, `Dockerfile.ana` y `.env.ana`. En ese caso:
 
@@ -100,11 +107,7 @@ Los nombres de bases también son configurables. Los ejemplos usan `Roaming` y `
 
 ### 5.1. Archivo de entorno
 
-Copia la plantilla solo si todavía no tienes tu archivo personal:
-
-```powershell
-Copy-Item .env.personal.example .env.personal
-```
+Crea `.env.personal` en la raíz copiando el siguiente bloque. Si deseas compartir la plantilla, guarda otra copia como `.env.personal.example` sin credenciales reales. Cuando esa plantilla ya exista, una nueva integrante podrá ejecutar `Copy-Item .env.personal.example .env.personal`. No sobrescribas una configuración que ya funciona.
 
 Contenido de referencia de `.env.personal`:
 
@@ -174,6 +177,8 @@ backups_bd
 *.backup
 *.dump
 *.zip
+*.pbix
+archivo_historico
 ```
 
 Estas exclusiones evitan copiar el entorno virtual, respaldos y configuración privada dentro de la imagen. Durante la ejecución, Compose monta la carpeta del proyecto en `/app`; el entorno virtual de Windows no se utiliza como intérprete dentro de Linux.
@@ -311,7 +316,7 @@ Debe ser `0`. Si hay errores, resuélvelos antes de continuar. En un SQL de text
 
 En la base destino nueva, ejecuta **estos dos archivos en este orden**:
 
-1. `creacionDW-ver2.sql`: tablas y relaciones.
+1. `creacionDW-ver2.sql`: tablas, relaciones y `control_cargas`.
 2. `dim_tiempo llenado.sql`: calendario de 2020 a 2030.
 
 ```powershell
@@ -322,6 +327,8 @@ docker compose --env-file .env.personal -p roaming-personal -f compose.personal.
 ```
 
 Las comillas permiten utilizar el nombre del archivo que contiene espacios. Si los SQL están en otra carpeta, ajusta su ruta local.
+
+Si el DW ya existía antes de incorporar la bitácora, comprueba `SELECT to_regclass('public.control_cargas');`. Si devuelve NULL, ejecuta únicamente el bloque `CREATE TABLE IF NOT EXISTS public.control_cargas` y sus índices/comentarios del DDL, o el script de migración que ya tiene el equipo. **No vuelvas a ejecutar todo el DDL sobre un DW existente.**
 
 Antes de cargar las facts, ejecuta en el DW:
 
@@ -390,25 +397,6 @@ $env:DB_DESTINO = "DWMovistar"
 python db_config.py
 ```
 
-=======
-
-Copiar .env.example en un nuevo archivo .env
-```
-cp .env.example .env
-```
-
-Si en VS Code en Python no logra detectar las configuraciones del .env, agregar esta configuracion al settings.json de su VS Code:
-```
-{
-    // ...
-    "python.terminal.useEnvFile": true,
-}
-```
-
-Configuración de la Base de Datos
-Antes de correr el código, debes configurar las credenciales de conexión.
->>>>>>> 5da1743d954950ceb32b0bc2b847146535178115
-
 Adapta usuario, contraseña, bases y puertos a tu instalación. Para PostgreSQL local estándar, cambia las **tres variables de puerto** a `5432`. Si publicaste Docker en `5540`, utiliza `5540`. Las variables definidas así pertenecen a la sesión de terminal; una nueva terminal necesita su configuración.
 
 
@@ -449,6 +437,8 @@ python orquestador.py
 # Python dentro de Docker:
 docker compose --env-file .env.personal -p roaming-personal -f compose.personal.yml run --rm etl orquestador.py
 ```
+
+La dimensión de tiempo ya debe estar preparada. El orquestador carga operador, tarifa y tasa de cambio antes de las dos facts. Los cambios del lote se confirman juntos; si falla un paso se revierten. No ejecutes una carga inicial de dimensión aislada sobre un DW poblado: su `TRUNCATE CASCADE` puede vaciar hechos dependientes.
 
 Las dimensiones se cargan antes de las facts. La carga inicial vacía y reconstruye las tablas que procesa; **no se utiliza para agregar solamente datos nuevos ni se repite entre pruebas SCD**.
 
@@ -505,31 +495,54 @@ Después, el ciclo habitual es: aplicar datos de prueba en **el origen**, ejecut
 
 Los diferenciales corregidos pueden conciliar días completos cuando encuentran diferencias; no debe describírselos como procesos estrictamente de solo inserción en cualquier escenario. Los lotes de octubre están diseñados para demostrar datos nuevos, versiones SCD y conservación de hechos previos en ese escenario concreto.
 
-### Pruebas SCD de octubre de 2026
+### Pruebas SQL de demostración
 
-Estos SQL son de prueba y deben aplicarse sobre una copia del respaldo final. Se requiere la versión de `orquestador_diferencial.py` que admite `--fecha-corte`.
+El paquete complementario `Manual_y_Pruebas_Roaming` contiene SQL de prueba. Copia su carpeta `sql` en el proyecto si deseas distribuir esas pruebas junto al repositorio. No se necesitan `demo.py`, scripts PowerShell auxiliares ni nuevos programas Python.
 
-| Orden | SQL completo en la base origen | Diferencial desde Python local |
-|---|---|---|
-| 1 | `01_Octubre_05_11_SCD.sql` | `python orquestador_diferencial.py --fecha-corte 2026-10-05` |
-| 2 | `02_Octubre_15_21_SCD.sql` | `python orquestador_diferencial.py --fecha-corte 2026-10-15` |
-| 3 | `03_Octubre_25_31_SCD.sql` | `python orquestador_diferencial.py --fecha-corte 2026-10-25` |
+1. Trabaja sobre una copia de origen y DW y respalda ambas antes de empezar.
+2. Ejecuta un diferencial sin cambiar el origen. Si no da `SIN_CAMBIOS`, resuelve o documenta la diferencia pendiente antes de medir los aumentos de la demo.
+3. Ejecuta `00_ORIGEN_Comprobar.sql` en origen y `10_DW_Verificacion.sql` en DW para registrar la situación inicial.
+4. Ejecuta cada SQL de modificación **completo en origen** y confirma su COMMIT.
+5. Después de cada archivo, ejecuta `python orquestador_diferencial.py`.
+6. Ejecuta `10_DW_Verificacion.sql` en el DW y compara el resultado esperado.
 
-**Ejecuta un diferencial entre cada SQL y el siguiente.** No apliques los tres cambios de catálogo seguidos antes de ejecutar Python.
+| SQL en origen, en este orden | Qué prueba |
+|---|---|
+| `01_ORIGEN_Catalogos_demo.sql` | Inserción de un operador, tres tarifas y una tasa de prueba |
+| `02_ORIGEN_Tres_TAP.sql` | Tres registros TAP nuevos; 250 SDR totales, 200.75 SDR con incidencias |
+| `03_ORIGEN_Tres_Consumos.sql` | Un nuevo registro por servicio; conserva los valores de referencia |
+| `04_ORIGEN_Cambiar_Estado_TAP.sql` | Cambio del rechazo del lote A a enviado: misma cantidad de TAP, menor incidencia |
+| `05_ORIGEN_Cambios_Dimensionales.sql` | Nuevas versiones del operador, tarifa GPRS y tasa de prueba, tras haber cargado 01 |
+| `06_ORIGEN_Otros_Tres_TAP.sql` | Otro lote independiente de tres TAP |
 
-En Docker, por ejemplo para el primer lote:
+Ejecuta el diferencial entre archivos, especialmente entre 01 y 05. Los catálogos de prueba se identifican con `VDDEMO26` y claves naturales negativas reservadas, distintas de -1. La tasa XTS/USD sirve únicamente para probar la dimensión; no modifica la tasa SDR/USD utilizada por el tráfico. No publiques esos datos como operadores reales.
 
-```powershell
-docker compose --env-file .env.personal -p roaming-personal -f compose.personal.yml run --rm etl orquestador_diferencial.py --fecha-corte 2026-10-05
+En estas pruebas se usa el corte actual del orquestador: **no necesitas escribir una fecha**. Verifica que el reloj del equipo sea correcto y que no existan versiones simuladas de operadores posteriores a la fecha actual; ese caso debe revisarse antes de usar el corte predeterminado.
+
+Para comprobar idempotencia, vuelve a ejecutar el diferencial sin modificar el origen. Debe registrar `SIN_CAMBIOS` y cero escrituras en las facts. Se genera una nueva bitácora aunque no cambien los datos analíticos.
+
+`--fecha-corte AAAA-MM-DD` es una opción para ensayos temporales deliberados. Fija el corte dimensional; no filtra las facts ni cambia el reloj. No retrocedas el corte por debajo de las versiones ya creadas.
+
+### Interpretación de las cargas y límites
+
+- Las facts se comparan con todo el conjunto de origen mediante `EXCEPT ALL`; se reemplazan solo los días con diferencias. No es extracción incremental ni CDC.
+- El origen debe conservar el historial completo. Un origen parcialmente truncado puede generar eliminación de registros del DW. La protección actual contra origen vacío no cubre todas las extracciones incompletas.
+- `id_hecho` es técnico: puede cambiar al reemplazar un día. No se conserva la PK de origen en las facts.
+- Operador conserva versiones históricas y admite correcciones del mismo día. Tarifa y tasa combinan versiones y actualizaciones según vigencia y corte; no todo cambio crea una versión nueva.
+- Los importes SDR y USD se toman del origen. El código actual convierte importes nulos en cero; no implementa conversión de respaldo SDR a USD. El contador TAP nulo se imputa a uno. Estas reglas deben documentarse y evaluarse en los controles de calidad.
+
+### Bitácora de ejecución
+
+```sql
+SELECT id_control,id_ejecucion,tipo_carga,proceso,estado,
+       filas_insertadas,filas_actualizadas,filas_eliminadas,
+       versiones_nuevas,dias_reemplazados,mensaje
+FROM public.control_cargas
+ORDER BY id_control DESC
+LIMIT 18;
 ```
 
-Repite ese formato con los cortes `2026-10-15` y `2026-10-25` después de sus respectivos SQL. El parámetro fija el corte de las dimensiones; **no filtra las facts por esa fecha ni cambia el reloj del equipo**.
-
-Cada lote agrega 84 consumos y 7 TAP, y modifica atributos de operador, tarifas y tasa de cambio. Sin otros cambios pendientes, debe generar una nueva versión de operador, tres de tarifa y una de tasa. Si se parte de 300,298 consumos sin el lote opcional del 1–2 de octubre, los tres lotes agregan 252 y llevan el total a 300,550.
-
-Ejecuta `04_Verificar_en_DW.sql` en la base destino para revisar versiones, importes e historial. Los comentarios antiguos pueden mencionar `Roaming2` y `DWRoamingMovistarV3`; selecciona las bases equivalentes de tu instalación.
-
-Para comprobar idempotencia, repite el mismo diferencial sin cambios en el origen y con el mismo corte: no debe agregar versiones ni hechos adicionales. Después del lote C, repite con `2026-10-25`; no retrocedas al corte A ni uses una fecha actual anterior a las versiones simuladas. Mantén esta serie separada de los lotes anteriores de noviembre/enero, que asumían otros valores de catálogo. Consulta también el instructivo del paquete SCD.
+Cada `id_ejecucion` reúne una fila `LOTE` y las filas de sus procesos. `EXITOSO` indica escrituras confirmadas; `SIN_CAMBIOS` indica ausencia de escrituras analíticas. Ante fallo, `ERROR` identifica el problema, `REVERTIDO` los pasos deshechos y `OMITIDO` los no ejecutados. Una interrupción abrupta puede dejar `EN_CURSO`; revisa el estado real antes de repetir. La bitácora no sustituye un respaldo.
 
 ## 12. Conectar desde DBeaver o pgAdmin
 
@@ -634,19 +647,13 @@ Los Compose y Dockerfiles pueden versionarse cuando se quieren compartir. Si un 
 | `unrecognized arguments: --fecha-corte` | Usar la versión del orquestador entregada con las pruebas SCD. |
 | Tablas ya existentes al restaurar | Comprobar si el origen ya estaba preparado; no añadir opciones de borrado automáticamente. |
 
-## 17. Referencias técnicas
+## 17. Power BI y respaldo
 
-- [Redes y puertos de Docker Compose](https://docs.docker.com/compose/how-tos/networking/).
-- [Proyectos independientes de Compose](https://docs.docker.com/compose/how-tos/project-name/).
-- [Variables y archivos de entorno en Compose](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
-- [Dockerfile alternativo en Compose](https://docs.docker.com/reference/compose-file/build/).
-- [Contexto de construcción y exclusiones](https://docs.docker.com/build/concepts/context/).
-- [Imagen oficial de PostgreSQL](https://hub.docker.com/_/postgres).
-- [Imagen oficial de Python](https://hub.docker.com/_/python).
-- [Restauración con pg_restore](https://www.postgresql.org/docs/18/app-pgrestore.html).
-- [Variables de entorno en PowerShell](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_environment_variables).
-- [Archivos ignorados y archivos ya rastreados por Git](https://git-scm.com/docs/gitignore).
-=======
-Verifica que el usuario, contraseña, puerto (por defecto 5432) y nombres de las bases de datos (Origen y Destino) coincidan con tu configuración local de PostgreSQL para el caso de ocupar docker tambien cambiar los puertos.
+El PBIX se conecta al DW en modo Importar. En Power BI Desktop, revisa **Transformar datos → Configuración de origen de datos → Cambiar origen** para seleccionar el servidor/puerto publicado y la base destino. El nombre exacto del control puede variar entre versiones. Comprueba también cualquier consulta que tenga una dirección escrita directamente en su código M.
 
+Después de confirmar el diferencial, pulsa **Inicio → Actualizar**. La carga Python no actualiza automáticamente el PBIX ni el informe publicado. Para actualizar en el servicio una base que sigue en una computadora local se requiere una ruta de conexión apropiada, normalmente una puerta de enlace configurada y disponible.
+
+Verifica que los filtros incluyan las fechas de prueba y al operador `VDDEMO26`. El filtro tipo de tráfico afecta a las medidas de tráfico; no clasifica los registros TAP porque esas facts no están relacionadas con tarifa.
+
+Respalda origen y DW antes de una prueba que deba ser reversible. En una copia de laboratorio sin escrituras concurrentes, genera dos backups desde DBeaver/pgAdmin o con `pg_dump -Fc`. Restaurar solo el origen y ejecutar un diferencial no recupera exactamente las versiones SCD, los identificadores técnicos ni la bitácora anteriores. Para volver al punto exacto, restaura ambos backups en bases vacías de prueba y ajusta las conexiones.
 
